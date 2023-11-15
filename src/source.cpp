@@ -4,11 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cmath>
+#include <memory>
 
-#define R 6378000.0
-#define D 300.0
+#define R 3678000.0
 #define GM 398600.5
-#define M 902
+//#define M 902
+#define M 3602
 #define EPSILON 0.000000000001
 
 #define pos_wk 3
@@ -16,7 +17,33 @@
 
 using std::cos;
 using std::sin;
+using std::tan;
+using std::acos;
+using std::log;
 using std::sqrt;
+
+double Gii_ln(double beta_t, double theta_t)
+{
+    double result = 0.0;
+    double nominator = tan((beta_t + theta_t) / 2.0);
+    double denominator = tan(beta_t / 2.0);
+
+    result = log(nominator / denominator);
+    return result;
+}
+
+double angle(double x1, double y1, double z1, double x2, double y2, double z2)
+{
+    double angle = 0.0;
+
+    double dotProd = x1 * x2 + y1 * y2 + z1 * z2;
+    double norm1 = sqrt(x1 * x1 + y1 * y1 + z1 * z1);
+    double norm2 = sqrt(x2 * x2 + y2 * y2 + z2 * z2);
+
+    angle = acos(dotProd / (norm1 * norm2));
+
+    return angle;
+}
 
 int main(int argc, char** argv)
 {
@@ -26,7 +53,7 @@ int main(int argc, char** argv)
     double Brad = 0.0, Lrad = 0.0, H = 0.0, u2n2 = 0.0;
     double temp = 0.0;
 
-    //
+    // hodnoty pre gaussove body [eta1k, eta2k, eta3k, wk]
     double gaussTable[7][4] = { 1.0 / 3.0 , 1.0 / 3.0 , 1.0 / 3.0 , 0.225,      // k = 1
                                 0.79742699, 0.10128651, 0.10128651, 0.12593918, // k = 2
                                 0.10128651, 0.79742699, 0.10128651, 0.12593918, // k = 3
@@ -40,7 +67,7 @@ int main(int argc, char** argv)
     double* X = new double[M] {0.0};
     double* Y = new double[M] {0.0};
     double* Z = new double[M] {0.0};    
-
+  
     // suradnicce normal v x_i
     double** n_x = new double*[M];
     double** n_y = new double*[M];
@@ -54,13 +81,14 @@ int main(int argc, char** argv)
     }
 
     // g vektor
-    double* g = new double[M] {0.0};
+    double* q = new double[M] {0.0};
 
     // Load GEOMETRY data
     printf("Loading geometry... ");
     FILE* file = nullptr;
     //file = fopen("E:/_school/5_ZS/MOP/cv04_linearneBazoveFunkcie3D/BL-902.dat", "r");
-    file = fopen("BL-902.dat", "r");
+    //file = fopen("BL-902.dat", "r");
+    file = fopen("BL-3602.dat", "r");
     if (file == nullptr)
     {
         printf("Geometry file did not open\n");
@@ -68,11 +96,10 @@ int main(int argc, char** argv)
     }
     for (int i = 0; i < M; i++)
     {
-        int result = fscanf(file, "%lf %lf %lf %lf %lf", &B[i], &L[i], &H, &g[i], &u2n2);
-        //g[i] = -g[i] * 0.00001;
-        g[i] = -GM / R;
+        int result = fscanf(file, "%lf %lf %lf %lf %lf", &B[i], &L[i], &H, &q[i], &u2n2);
+        //q[i] = -q[i] * 0.00001;
+        //q[i] = GM / (R * R);
 
-        //g[i] = u2n2;
         Brad = B[i] * M_PI / 180.0;
         Lrad = L[i] * M_PI / 180.0;
         H = 0.0;
@@ -87,11 +114,6 @@ int main(int argc, char** argv)
     printf("done\n");
     fclose(file);   
 
-    for (int i = 0; i < 9; i++)
-    {
-        printf("%.6lf\n", X[i]);
-    }
-
     // Allocate space for array E
     int** E = new int*[M];
     for (int i = 0; i < M; i++)
@@ -103,18 +125,14 @@ int main(int argc, char** argv)
     // Load ELEMENTS data
     printf("Loading elements data... ");
     //file = fopen("E:/_school/5_ZS/MOP/cv04_linearneBazoveFunkcie3D/elem_902.dat", "r");
-    file = fopen("elem_902.dat", "r");
+    //file = fopen("elem_902.dat", "r");
+    file = fopen("elem_3602.dat", "r");
     for (int i = 0; i < M; i++)
     {
         int result = fscanf(file, "%d %d %d %d %d %d %d", &E[i][0], &E[i][1], &E[i][2], &E[i][3], &E[i][4], &E[i][5], &E[i][6]);
     }
     printf("done\n");
     fclose(file);
-
-    for (int i = 0; i < 5; i++)
-    {
-        printf("%d: %d %d %d %d %d %d %d\n", i, E[i][0], E[i][1], E[i][2], E[i][3], E[i][4], E[i][5], E[i][6]);
-    }
 
     // Compute areas of all triangles and normals to triangles
     int next2 = -1; // pomocna premenna pre vypocet indexu dalsieho suseda
@@ -132,14 +150,20 @@ int main(int argc, char** argv)
     double w_z = 0.0;
     double w_norm = 0.0;
     double A_sum = 0.0;
+    double tSum = 0.0;
+    double beta_t = 0.0;
+    double theta_t = 0.0;
+    double l_t = 0.0;
 
     printf("Calculating triangles...");
     double** A = new double* [M];
+    double* Gdiag = new double[M] {0.0};
     for (int j = 0; j < M; j++)
     {
         // kazdy j-ty support ma 4/6 trojuholnikov
         A[j] = new double[6] {0.0};
     
+        tSum = 0.0;
         // iteracia cez vsetky trojuholniky j-teho supportu -> ulozene v poli E na pozicii [j][0]
         for (int t = 1; t <= E[j][0]; t++) // od [1,6], riadky E su [0,7]
         {
@@ -171,19 +195,45 @@ int main(int argc, char** argv)
             n_x[j][t - 1] = - w_x / w_norm;
             n_y[j][t - 1] = - w_y / w_norm;
             n_z[j][t - 1] = - w_z / w_norm;
-        }
+
+            // VYPOCET Gii
+            // uhol theta_t
+            theta_t = angle(u_x, u_y, u_z, v_x, v_y, v_z);
+
+            w_x = X[next2] - X[next1];
+            w_y = Y[next2] - Y[next1];
+            w_z = Z[next2] - Z[next1];
+
+            // uhol beta_t
+            beta_t = angle(-u_x, -u_y, -u_z, w_x, w_y, w_z);
+
+            // dlzka l_t
+            l_t = sqrt(w_x * w_x + w_y * w_y + w_z * w_z);
+            
+            temp = Gii_ln(beta_t, theta_t);
+            tSum += (A[j][t - 1] / l_t) * temp;
+        } // END TRIANGLES
+
+        temp = tSum / (4.0 * M_PI);
+        Gdiag[j] = temp;
     }
+
     printf("done\n\n");
-    double A_earth = 4.0 * M_PI * R * R;
-    printf("Sphere area: %lf km^2\n", A_sum / 3.0);
-    printf("Sphere/Earth: %lf\n\n", (A_sum / 3.0) / A_earth);
+    /*double A_earth = 4.0 * M_PI * R * R;
+    printf("Sphere area: %.10lf km^2\n", A_sum / 3.0);
+    printf("Sphere/Earth: %lf\n\n", (A_sum / 3.0) / A_earth);*/
+
+    //for (int i = 0; i < 7; i++)
+    //{
+    //    printf("moje Gdiag[%d]: %.5lf\n", i, Gdiag[i]);
+    //}
 
     printf("Computing gauss points... ");
     // suradnice gaussovych bodov
     double*** x = new double** [M];
     double*** y = new double** [M];
     double*** z = new double** [M];
-
+    
     for (int j = 0; j < M; j++)
     {
         x[j] = new double* [6] {nullptr};
@@ -215,8 +265,11 @@ int main(int argc, char** argv)
 
     // compute matrix F
     double F_ij = 0.0;
-    double tSum = 0.0;
-    double kSum = 0.0;
+    double G_ij = 0.0;
+    double tSum_F = 0.0;
+    double kSum_F = 0.0;
+    double tSum_G = 0.0;
+    double kSum_G = 0.0;
     double r_ijk = 0.0;
     double xDist = 0.0; double yDist = 0.0; double zDist = 0.0;
     double w_k = 0.0; double psi_k = 0.0;
@@ -225,21 +278,29 @@ int main(int argc, char** argv)
 
     printf("Computing matrix F... ");
     double** F = new double* [M];
+    double* G = new double[M] {0.0};
+    double* rhs = new double[M] {0.0};
+
     for (int i = 0; i < M; i++)
     {
         F[i] = new double[M] {0.0};
 
         F[i][i] = 1.0;
+    }
 
+    for (int i = 0; i < M; i++)
+    {
         F_ij = 0.0;
         for (int j = 0; j < M; j++) // iteracie cez vsetky supporty "j"
         {
             if (i != j) // iba nesingularne
             {
-                tSum = 0.0;
+                tSum_F = 0.0;
+                tSum_G = 0.0;
                 for (int t = 1; t <= E[j][0]; t++) // iteracie cez vsetky trojuholniky supportu "j"
                 {
-                    kSum = 0.0;
+                    kSum_F = 0.0;
+                    kSum_G = 0.0;
                     for (int k = 0; k < 7; k++) // iteracie cez vsetky Gaussove body
                     {
                         // x[j][t - 1][k]
@@ -251,7 +312,11 @@ int main(int argc, char** argv)
                         w_k = gaussTable[k][pos_wk];
                         psi_k = gaussTable[k][pos_eta1k];
 
-                        kSum += (1.0 / (r_ijk * r_ijk * r_ijk)) * w_k * psi_k;
+                        temp = w_k * psi_k / (r_ijk * r_ijk * r_ijk);
+                        kSum_F += temp;
+
+                        temp = w_k * psi_k / r_ijk;
+                        kSum_G += temp;
                     } // END GAUSS
 
                     // n_x[j][t - 1] = w_x / w_norm;
@@ -259,214 +324,210 @@ int main(int argc, char** argv)
                     r_x = X[i] - X[j];
                     r_y = Y[i] - Y[j];
                     r_z = Z[i] - Z[j];
-                    double xi = X[i];
-                    double xj = X[j];
+                   
                     // skalarny sucin medzi vektorom r_ij a normalou n^t_j
                     K_tij = r_x * n_x[j][t - 1] + r_y * n_y[j][t - 1] + r_z * n_z[j][t - 1];
-                    //K_tij = std::abs(K_tij);
 
-                    //A[j][t - 1]
-                    tSum += A[j][t - 1] * K_tij * kSum;
+                    tSum_F += A[j][t - 1] * K_tij * kSum_F;
+                
+                    tSum_G += A[j][t - 1] * kSum_G;
                 } // END TRIANGLES
 
-                F_ij = ((1.0) / (4.0 * M_PI)) * tSum;
+                F_ij = tSum_F / (4.0 * M_PI);
                 
                 F[i][j] = F_ij;
                 F[i][i] -= F_ij;
+
+                G_ij = tSum_G / (4.0 * M_PI);
+
+                rhs[i] += G_ij * q[j];
+
             } // END IF NON-SINGULAR
+            else
+            {
+                rhs[i] += Gdiag[j] * q[j];
+            }
         }
     }
     printf("done\n\n");
 
-    for (int i = 0; i < 9; i++)
+    /*for (int i = 0; i < 9; i++)
     {
         for (int j = 0; j < 9; j++)
         {
-            printf("%.4lf\t", F[i][j]);
+            printf("%.8lf\t", F[i][j]);
         }
         printf("\n");
     }
 
+    for (int i = 0; i < 9; i++)
+    {
+        printf("G[%d][%d]: %.5lf\n", i, i, Gdiag[i]);
+    }*/
+
     //########## BCGS linear solver ##########//
 
-    //double* sol = new double[N]; // vektor x^0 -> na ukladanie riesenia systemu
-    //double* r_hat = new double[N]; // vektor \tilde{r} = b - A.x^0;
-    //double* r = new double[N]; // vektor pre rezidua
-    //double* p = new double[N]; // pomocny vektor na update riesenia
-    //double* v = new double[N]; // pomocny vektor na update riesenia
-    //double* s = new double[N]; // pomocny vektor na update riesenia
-    //double* t = new double[N]; // pomocny vektor na update riesenia
+    double* sol = new double[M]; // vektor x^0 -> na ukladanie riesenia systemu
+    double* r_hat = new double[M]; // vektor \tilde{r} = b - A.x^0;
+    double* r = new double[M]; // vektor pre rezidua
+    double* p = new double[M]; // pomocny vektor na update riesenia
+    double* v = new double[M]; // pomocny vektor na update riesenia
+    double* sv = new double[M]; // pomocny vektor na update riesenia
+    double* t = new double[M]; // pomocny vektor na update riesenia
 
-    //double beta = 0.0;
-    //double rhoNew = 1.0;
-    //double rhoOld = 0.0;
-    //double alpha = 1.0;
-    //double omega = 1.0;
+    double beta = 0.0;
+    double rhoNew = 1.0;
+    double rhoOld = 0.0;
+    double alpha = 1.0;
+    double omega = 1.0;
 
-    //double tempDot = 0.0;
-    //double tempDot2 = 0.0;
-    //double sNorm = 0.0;
+    double tempDot = 0.0;
+    double tempDot2 = 0.0;
+    double sNorm = 0.0;
 
-    //int MAX_ITER = 1000;
-    //double TOL = 1.0E-6;
-    //int iter = 1;
+    int MAX_ITER = 1000;
+    double TOL = 1.0E-6;
+    int iter = 1;
 
-    //double rezNorm = 0.0;
-    //for (int i = 0; i < N; i++) // set all to zero
-    //{
-    //    sol[i] = 0.0;
-    //    p[i] = 0.0; // = 0
-    //    v[i] = 0.0; // = 0
-    //    s[i] = 0.0;
-    //    t[i] = 0.0;
+    double rezNorm = 0.0;
+    for (int i = 0; i < M; i++) // set all to zero
+    {
+        sol[i] = 0.0;
+        p[i] = 0.0; // = 0
+        v[i] = 0.0; // = 0
+        sv[i] = 0.0;
+        t[i] = 0.0;
 
-    //    r[i] = g[i];
-    //    r_hat[i] = g[i];
-    //    rezNorm += r[i] * r[i];
+        r[i] = rhs[i];
+        r_hat[i] = rhs[i];
+        rezNorm += r[i] * r[i];
 
-    //}
+    }
 
-    //printf("||r0||: %.10lf\n", sqrt(rezNorm));
-    //rezNorm = 0.0;
+    printf("||r0||: %.10lf\n", sqrt(rezNorm));
+    rezNorm = 0.0;
 
-    //do
-    //{
-    //    rhoOld = rhoNew; // save previous rho_{i-2}
-    //    rhoNew = 0.0; // compute new rho_{i-1}
-    //    for (int i = 0; i < N; i++) // dot(r_hat, r)
-    //        rhoNew += r_hat[i] * r[i];
+    do
+    {
+        rhoOld = rhoNew; // save previous rho_{i-2}
+        rhoNew = 0.0; // compute new rho_{i-1}
+        for (int i = 0; i < M; i++) // dot(r_hat, r)
+            rhoNew += r_hat[i] * r[i];
 
-    //    if (rhoNew == 0.0)
-    //        return -1;
+        if (rhoNew == 0.0)
+            return -1;
 
-    //    if (iter == 1)
-    //    {
-    //        //printf("iter 1 setup\n");
-    //        for (int i = 0; i < N; i++)
-    //            p[i] = r[i];
-    //    }
-    //    else
-    //    {
-    //    beta = (rhoNew / rhoOld) * (alpha / omega);
-    //    for (int i = 0; i < N; i++) // update vector p^(i)
-    //        p[i] = r[i] + beta * (p[i] - omega * v[i]);
-    //    }
+        if (iter == 1)
+        {
+            //printf("iter 1 setup\n");
+            for (int i = 0; i < M; i++)
+                p[i] = r[i];
+        }
+        else
+        {
+        beta = (rhoNew / rhoOld) * (alpha / omega);
+        for (int i = 0; i < M; i++) // update vector p^(i)
+            p[i] = r[i] + beta * (p[i] - omega * v[i]);
+        }
 
-    //    // compute vector v = A.p
-    //    for (int i = 0; i < N; i++)
-    //    {
-    //        v[i] = 0.0;
-    //        for (int j = 0; j < N; j++)
-    //        {
-    //            ij = i * N + j;
-    //            v[i] += A[ij] * p[j];
-    //        }
-    //    }
+        // compute vector v = A.p
+        for (int i = 0; i < M; i++)
+        {
+            v[i] = 0.0;
+            for (int j = 0; j < M; j++)
+            {
+                v[i] += F[i][j] * p[j];
+            }
+        }
 
-    //    // compute alpha
-    //    tempDot = 0.0;
-    //    for (int i = 0; i < N; i++)
-    //        tempDot += r_hat[i] * v[i];
+        // compute alpha
+        tempDot = 0.0;
+        for (int i = 0; i < M; i++)
+            tempDot += r_hat[i] * v[i];
 
-    //    alpha = rhoNew / tempDot;
+        alpha = rhoNew / tempDot;
 
-    //    // compute vektor s
-    //    sNorm = 0.0;
-    //    for (int i = 0; i < N; i++)
-    //    {
-    //        s[i] = r[i] - alpha * v[i];
-    //        sNorm += s[i] * s[i];
-    //    }
+        // compute vektor s
+        sNorm = 0.0;
+        for (int i = 0; i < M; i++)
+        {
+            sv[i] = r[i] - alpha * v[i];
+            sNorm += sv[i] * sv[i];
+        }
 
-    //    sNorm = sqrt(sNorm);
-    //    if (sNorm < TOL) // check if ||s|| is small enough
-    //    {
-    //        for (int i = 0; i < N; i++) // update solution x
-    //            sol[i] = sol[i] + alpha * p[i];
+        sNorm = sqrt(sNorm);
+        if (sNorm < TOL) // check if ||s|| is small enough
+        {
+            for (int i = 0; i < M; i++) // update solution x
+                sol[i] = sol[i] + alpha * p[i];
 
-    //        printf("BCGS stop:   ||s||(= %.10lf) is small enough, iter: %3d\n", sNorm, iter);
-    //        break;
-    //    }
+            printf("BCGS stop:   ||s||(= %.10lf) is small enough, iter: %3d\n", sNorm, iter);
+            break;
+        }
 
-    //    // compute vector t = A.s
-    //    for (int i = 0; i < N; i++)
-    //    {
-    //        t[i] = 0.0;
-    //        for (int j = 0; j < N; j++)
-    //        {
-    //            ij = i * N + j;
-    //            t[i] += A[ij] * s[j];
-    //        }
-    //    }
+        // compute vector t = A.s
+        for (int i = 0; i < M; i++)
+        {
+            t[i] = 0.0;
+            for (int j = 0; j < M; j++)
+            {
+                t[i] += F[i][j] * sv[j];
+            }
+        }
 
-    //    // compute omega
-    //    tempDot = 0.0; tempDot2 = 0.0;
-    //    for (int i = 0; i < N; i++)
-    //    {
-    //        tempDot += t[i] * s[i];
-    //        tempDot2 += t[i] * t[i];
-    //    }
-    //    omega = tempDot / tempDot2;
+        // compute omega
+        tempDot = 0.0; tempDot2 = 0.0;
+        for (int i = 0; i < M; i++)
+        {
+            tempDot += t[i] * sv[i];
+            tempDot2 += t[i] * t[i];
+        }
+        omega = tempDot / tempDot2;
 
-    //    rezNorm = 0.0;
-    //    for (int i = 0; i < N; i++)
-    //    {
-    //        sol[i] = sol[i] + alpha * p[i] + omega * s[i]; // update solution x
-    //        r[i] = s[i] - omega * t[i]; // compute new residuum vector
-    //        rezNorm += r[i] * r[i]; // compute residuum norm
-    //    }
+        rezNorm = 0.0;
+        for (int i = 0; i < M; i++)
+        {
+            sol[i] = sol[i] + alpha * p[i] + omega * sv[i]; // update solution x
+            r[i] = sv[i] - omega * t[i]; // compute new residuum vector
+            rezNorm += r[i] * r[i]; // compute residuum norm
+        }
 
-    //    rezNorm = sqrt(rezNorm);
-    //    printf("iter: %3d    ||r||: %.10lf\n", iter, rezNorm);
+        rezNorm = sqrt(rezNorm);
+        printf("iter: %3d    ||r||: %.10lf\n", iter, rezNorm);
 
-    //    if (rezNorm < TOL)
-    //    {
-    //        printf("BCGS stop iter: ||r|| is small enough\n");
-    //        break;
-    //    }
+        if (rezNorm < TOL)
+        {
+            printf("BCGS stop iter: ||r|| is small enough\n");
+            break;
+        }
 
-    //    iter++;
+        iter++;
 
-    //} while ((iter < MAX_ITER) && (rezNorm > TOL));
+    } while ((iter < MAX_ITER) && (rezNorm > TOL));
 
-    //delete[] r_hat;
-    //delete[] r;
-    //delete[] p;
-    //delete[] v;
-    //delete[] s;
-    //delete[] t;
+    delete[] r_hat;
+    delete[] r;
+    delete[] p;
+    delete[] v;
+    delete[] sv;
+    delete[] t;
 
-    ////########## EXPORT DATA ##########//
-    //file = fopen("../outCorrect_serial.dat", "w");
-    //if (file == nullptr)
-    //{
-    //    printf("data export failed\n");
-    //    return -1;
-    //}
+    //########## EXPORT DATA ##########//
+    file = fopen("../sol_3602_serial.dat", "w");
+    if (file == nullptr)
+    {
+        printf("data export failed\n");
+        return -1;
+    }
 
-    //printf("solution export started... ");
-    //double ui = 0.0, Gij = 0.0;
-    //for (int i = 0; i < N; i++)
-    //{
-    //    ui = 0.0;
-    //    for (int j = 0; j < N; j++) // compute solution u(X_i)
-    //    {
-    //        r_x = X_x[i] - s_x[j];
-    //        r_y = X_y[i] - s_y[j];
-    //        r_z = X_z[i] - s_z[j];
+    printf("solution export started... ");
+    for (int i = 0; i < M; i++)
+    {
+        fprintf(file, "%.6lf\t%.6lf\t%.6lf\n", B[i], L[i], sol[i]);
+    }
 
-    //        rNorm = sqrt(r_x * r_x + r_y * r_y + r_z * r_z);
-
-    //        Gij = 1.0 / (4.0 * M_PI * rNorm);
-
-    //        ui += sol[j] * Gij;
-    //    }
-
-    //    fprintf(file, "%.5lf\t%.5lf\t%.5lf\n", B[i], L[i], ui);
-    //}
-
-    //fclose(file);
-    //printf("done\n");
+    fclose(file);
+    printf("done\n");
 
     delete[] X;
     delete[] Y;
@@ -474,5 +535,5 @@ int main(int argc, char** argv)
     delete[] n_x;
     delete[] n_y;
     delete[] n_z;
-    delete[] g;
+    delete[] q;
 }
