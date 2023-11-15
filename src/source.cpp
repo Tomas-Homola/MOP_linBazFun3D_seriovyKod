@@ -5,11 +5,14 @@
 #include <stdlib.h>
 #include <cmath>
 
-#define R 6378.0
+#define R 6378000.0
 #define D 300.0
 #define GM 398600.5
 #define M 902
 #define EPSILON 0.000000000001
+
+#define pos_wk 3
+#define pos_eta1k 0
 
 using std::cos;
 using std::sin;
@@ -56,7 +59,8 @@ int main(int argc, char** argv)
     // Load GEOMETRY data
     printf("Loading geometry... ");
     FILE* file = nullptr;
-    file = fopen("E:/_school/5_ZS/MOP/cv04_linearneBazoveFunkcie3D/BL-902.dat", "r");
+    //file = fopen("E:/_school/5_ZS/MOP/cv04_linearneBazoveFunkcie3D/BL-902.dat", "r");
+    file = fopen("BL-902.dat", "r");
     if (file == nullptr)
     {
         printf("Geometry file did not open\n");
@@ -83,6 +87,11 @@ int main(int argc, char** argv)
     printf("done\n");
     fclose(file);   
 
+    for (int i = 0; i < 9; i++)
+    {
+        printf("%.6lf\n", X[i]);
+    }
+
     // Allocate space for array E
     int** E = new int*[M];
     for (int i = 0; i < M; i++)
@@ -93,7 +102,8 @@ int main(int argc, char** argv)
 
     // Load ELEMENTS data
     printf("Loading elements data... ");
-    file = fopen("E:/_school/5_ZS/MOP/cv04_linearneBazoveFunkcie3D/elem_902.dat", "r");
+    //file = fopen("E:/_school/5_ZS/MOP/cv04_linearneBazoveFunkcie3D/elem_902.dat", "r");
+    file = fopen("elem_902.dat", "r");
     for (int i = 0; i < M; i++)
     {
         int result = fscanf(file, "%d %d %d %d %d %d %d", &E[i][0], &E[i][1], &E[i][2], &E[i][3], &E[i][4], &E[i][5], &E[i][6]);
@@ -101,13 +111,14 @@ int main(int argc, char** argv)
     printf("done\n");
     fclose(file);
 
-    /*for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 5; i++)
     {
         printf("%d: %d %d %d %d %d %d %d\n", i, E[i][0], E[i][1], E[i][2], E[i][3], E[i][4], E[i][5], E[i][6]);
-    }*/
+    }
 
     // Compute areas of all triangles and normals to triangles
     int next2 = -1; // pomocna premenna pre vypocet indexu dalsieho suseda
+    int s = -1;
     int next1 = -1;
     // vektory u a v -> u = E[j][t] - j, v = E[j][s] - j, w = u x v -> vektorovy sucin
     double u_x = 0.0;
@@ -137,11 +148,12 @@ int main(int argc, char** argv)
             u_y = Y[next1] - Y[j];
             u_z = Z[next1] - Z[j];
 
-            next2 = (t == E[j][0]) ? 1 : t + 1;
+            s = (t == E[j][0]) ? 1 : t + 1;
+            next2 = E[j][s] - 1;
 
-            v_x = X[E[j][next2] - 1] - X[j];
-            v_y = Y[E[j][next2] - 1] - Y[j];
-            v_z = Z[E[j][next2] - 1] - Z[j];
+            v_x = X[next2] - X[j];
+            v_y = Y[next2] - Y[j];
+            v_z = Z[next2] - Z[j];
 
             w_x = u_y * v_z - v_y * u_z;
             w_y = u_z * v_x - v_z * u_x;
@@ -156,14 +168,14 @@ int main(int argc, char** argv)
             A_sum += temp;
 
             // normala ku trojuholniku je normovany vektor w
-            n_x[j][t - 1] = w_x / w_norm;
-            n_y[j][t - 1] = w_y / w_norm;
-            n_z[j][t - 1] = w_z / w_norm;
+            n_x[j][t - 1] = - w_x / w_norm;
+            n_y[j][t - 1] = - w_y / w_norm;
+            n_z[j][t - 1] = - w_z / w_norm;
         }
     }
     printf("done\n\n");
     double A_earth = 4.0 * M_PI * R * R;
-    printf("Sphere area: %lf km^2\nrelative error: %lf\n", A_sum / 3.0, abs(A_sum / 3.0 - A_earth) / A_earth);
+    printf("Sphere area: %lf km^2\n", A_sum / 3.0);
     printf("Sphere/Earth: %lf\n\n", (A_sum / 3.0) / A_earth);
 
     printf("Computing gauss points... ");
@@ -174,11 +186,11 @@ int main(int argc, char** argv)
 
     for (int j = 0; j < M; j++)
     {
-        x[j] = new double* [6];
-        y[j] = new double* [6];
-        z[j] = new double* [6];
+        x[j] = new double* [6] {nullptr};
+        y[j] = new double* [6] {nullptr};
+        z[j] = new double* [6] {nullptr};
 
-        for (int t = 1; t <= 6; t++)
+        for (int t = 1; t <= E[j][0]; t++)
         {
             x[j][t - 1] = new double[7] {0.0};
             y[j][t - 1] = new double[7] {0.0};
@@ -187,7 +199,8 @@ int main(int argc, char** argv)
             for (int k = 0; k < 7; k++)
             {
                 next1 = E[j][t] - 1;
-                next2 = (t == E[j][0]) ? 1 : t + 1;
+                s = (t == E[j][0]) ? 1 : t + 1;
+                next2 = E[j][s] - 1;
 
                 x[j][t - 1][k] = X[j] * gaussTable[k][0] + X[next1] * gaussTable[k][1] + X[next2] * gaussTable[k][2];
                 y[j][t - 1][k] = Y[j] * gaussTable[k][0] + Y[next1] * gaussTable[k][1] + Y[next2] * gaussTable[k][2];
@@ -196,17 +209,83 @@ int main(int argc, char** argv)
         }
     }
 
-    printf("done\n");
+    printf("done\n\n");
     //for (int i = 0; i < N; i++) // set constant g values
     //    g[i] = -(GM) / (R * R);
 
-    // vytvorenie matice systemu rovnic
-    /*double* A = new double[N * N] {0.0};*/
-    int ij = -1;
+    // compute matrix F
+    double F_ij = 0.0;
+    double tSum = 0.0;
+    double kSum = 0.0;
+    double r_ijk = 0.0;
+    double xDist = 0.0; double yDist = 0.0; double zDist = 0.0;
+    double w_k = 0.0; double psi_k = 0.0;
+    double K_tij = 0.0;
+    double r_x = 0.0; double r_y = 0.0; double r_z = 0.0;
 
+    printf("Computing matrix F... ");
+    double** F = new double* [M];
+    for (int i = 0; i < M; i++)
+    {
+        F[i] = new double[M] {0.0};
 
+        F[i][i] = 1.0;
 
+        F_ij = 0.0;
+        for (int j = 0; j < M; j++) // iteracie cez vsetky supporty "j"
+        {
+            if (i != j) // iba nesingularne
+            {
+                tSum = 0.0;
+                for (int t = 1; t <= E[j][0]; t++) // iteracie cez vsetky trojuholniky supportu "j"
+                {
+                    kSum = 0.0;
+                    for (int k = 0; k < 7; k++) // iteracie cez vsetky Gaussove body
+                    {
+                        // x[j][t - 1][k]
+                        xDist = x[j][t - 1][k] - X[i];
+                        yDist = y[j][t - 1][k] - Y[i];
+                        zDist = z[j][t - 1][k] - Z[i];
 
+                        r_ijk = sqrt(xDist * xDist + yDist * yDist + zDist * zDist);
+                        w_k = gaussTable[k][pos_wk];
+                        psi_k = gaussTable[k][pos_eta1k];
+
+                        kSum += (1.0 / (r_ijk * r_ijk * r_ijk)) * w_k * psi_k;
+                    } // END GAUSS
+
+                    // n_x[j][t - 1] = w_x / w_norm;
+                    // vektor z i-teho do j-teho kolokacneho bodu
+                    r_x = X[i] - X[j];
+                    r_y = Y[i] - Y[j];
+                    r_z = Z[i] - Z[j];
+                    double xi = X[i];
+                    double xj = X[j];
+                    // skalarny sucin medzi vektorom r_ij a normalou n^t_j
+                    K_tij = r_x * n_x[j][t - 1] + r_y * n_y[j][t - 1] + r_z * n_z[j][t - 1];
+                    //K_tij = std::abs(K_tij);
+
+                    //A[j][t - 1]
+                    tSum += A[j][t - 1] * K_tij * kSum;
+                } // END TRIANGLES
+
+                F_ij = ((1.0) / (4.0 * M_PI)) * tSum;
+                
+                F[i][j] = F_ij;
+                F[i][i] -= F_ij;
+            } // END IF NON-SINGULAR
+        }
+    }
+    printf("done\n\n");
+
+    for (int i = 0; i < 9; i++)
+    {
+        for (int j = 0; j < 9; j++)
+        {
+            printf("%.4lf\t", F[i][j]);
+        }
+        printf("\n");
+    }
 
     //########## BCGS linear solver ##########//
 
