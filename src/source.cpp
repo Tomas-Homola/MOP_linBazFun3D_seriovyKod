@@ -6,11 +6,13 @@
 #include <cmath>
 #include <memory>
 
-#define R 3678000.0
+#define R 6378000.0
 #define GM 398600.5
 //#define M 902
 #define M 3602
 #define EPSILON 0.000000000001
+#define TOL 1.0E-6
+#define MAX_ITER  1000
 
 #define pos_wk 3
 #define pos_eta1k 0
@@ -80,13 +82,12 @@ int main(int argc, char** argv)
         n_z[i] = new double[6] {0.0};
     }
 
-    // g vektor
+    // q vektor
     double* q = new double[M] {0.0};
 
     // Load GEOMETRY data
     printf("Loading geometry... ");
     FILE* file = nullptr;
-    //file = fopen("E:/_school/5_ZS/MOP/cv04_linearneBazoveFunkcie3D/BL-902.dat", "r");
     //file = fopen("BL-902.dat", "r");
     file = fopen("BL-3602.dat", "r");
     if (file == nullptr)
@@ -97,12 +98,12 @@ int main(int argc, char** argv)
     for (int i = 0; i < M; i++)
     {
         int result = fscanf(file, "%lf %lf %lf %lf %lf", &B[i], &L[i], &H, &q[i], &u2n2);
-        //q[i] = -q[i] * 0.00001;
+        q[i] = q[i] * 0.00001;
         //q[i] = GM / (R * R);
 
         Brad = B[i] * M_PI / 180.0;
         Lrad = L[i] * M_PI / 180.0;
-        H = 0.0;
+        //H = 0.0;
         X[i] = (R + H) * cos(Brad) * cos(Lrad);
         Y[i] = (R + H) * cos(Brad) * sin(Lrad);
         Z[i] = (R + H) * sin(Brad);
@@ -124,7 +125,6 @@ int main(int argc, char** argv)
 
     // Load ELEMENTS data
     printf("Loading elements data... ");
-    //file = fopen("E:/_school/5_ZS/MOP/cv04_linearneBazoveFunkcie3D/elem_902.dat", "r");
     //file = fopen("elem_902.dat", "r");
     file = fopen("elem_3602.dat", "r");
     for (int i = 0; i < M; i++)
@@ -278,7 +278,7 @@ int main(int argc, char** argv)
 
     printf("Computing matrix F... ");
     double** F = new double* [M];
-    double* G = new double[M] {0.0};
+    //double* G = new double[M] {0.0};
     double* rhs = new double[M] {0.0};
 
     for (int i = 0; i < M; i++)
@@ -385,8 +385,6 @@ int main(int argc, char** argv)
     double tempDot2 = 0.0;
     double sNorm = 0.0;
 
-    int MAX_ITER = 1000;
-    double TOL = 1.0E-6;
     int iter = 1;
 
     double rezNorm = 0.0;
@@ -513,7 +511,7 @@ int main(int argc, char** argv)
     delete[] t;
 
     //########## EXPORT DATA ##########//
-    file = fopen("../sol_3602_serial.dat", "w");
+    file = fopen("../sol_3602.dat", "w");
     if (file == nullptr)
     {
         printf("data export failed\n");
