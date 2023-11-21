@@ -1,10 +1,11 @@
 ﻿#define _USE_MATH_DEFINES
 
-#include <mpi.h>
+#include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <cmath>
 #include <memory>
+#include <chrono>
 
 #define R 6378000.0
 #define GM 398600.5
@@ -49,11 +50,21 @@ double angle(double x1, double y1, double z1, double x2, double y2, double z2)
 
 int main(int argc, char** argv)
 {
-    printf("Serial code\n\n");
+    int nprocs = 6;
+    omp_set_num_threads(nprocs);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    if (nprocs == 1)
+        printf("Serial code\n\n");
+    else
+        printf("Parallel code (nprocs: %d)\n\n", nprocs);
+
     double* B = new double[M] {0.0};
     double* L = new double[M] {0.0};
     double Brad = 0.0, Lrad = 0.0, H = 0.0, u2n2 = 0.0;
     double temp = 0.0;
+    int i = 0; int j = 0; int t = 0; int k = 0;
 
     // hodnoty pre gaussove body [eta1k, eta2k, eta3k, wk]
     double gaussTable[7][4] = { 1.0 / 3.0 , 1.0 / 3.0 , 1.0 / 3.0 , 0.225,      // k = 1
@@ -68,14 +79,14 @@ int main(int argc, char** argv)
     // suradnice bodov X_i
     double* X = new double[M] {0.0};
     double* Y = new double[M] {0.0};
-    double* Z = new double[M] {0.0};    
-  
-    // suradnicce normal v x_i
-    double** n_x = new double*[M];
-    double** n_y = new double*[M];
-    double** n_z = new double*[M];
+    double* Z = new double[M] {0.0};
 
-    for (int i = 0; i < M; i++)
+    // suradnicce normal v x_i
+    double** n_x = new double* [M];
+    double** n_y = new double* [M];
+    double** n_z = new double* [M];
+
+    for (i = 0; i < M; i++)
     {
         n_x[i] = new double[6] {0.0};
         n_y[i] = new double[6] {0.0};
@@ -95,11 +106,11 @@ int main(int argc, char** argv)
         printf("Geometry file did not open\n");
         return -1;
     }
-    for (int i = 0; i < M; i++)
+    for (i = 0; i < M; i++)
     {
         int result = fscanf(file, "%lf %lf %lf %lf %lf", &B[i], &L[i], &H, &q[i], &u2n2);
         q[i] = q[i] * 0.00001;
-        //q[i] = GM / (R * R);
+        //q[i] = -GM / (R * R);
 
         Brad = B[i] * M_PI / 180.0;
         Lrad = L[i] * M_PI / 180.0;
@@ -113,11 +124,11 @@ int main(int argc, char** argv)
         //    printf("X[%d] = (%.2lf, %.2lf, %.2lf)\n", i, X_x[i], X_y[i], X_z[i]);
     }
     printf("done\n");
-    fclose(file);   
+    fclose(file);
 
     // Allocate space for array E
-    int** E = new int*[M];
-    for (int i = 0; i < M; i++)
+    int** E = new int* [M];
+    for (i = 0; i < M; i++)
     {
         // i - 1
         E[i] = new int[7] {0};
@@ -127,7 +138,7 @@ int main(int argc, char** argv)
     printf("Loading elements data... ");
     //file = fopen("elem_902.dat", "r");
     file = fopen("elem_3602.dat", "r");
-    for (int i = 0; i < M; i++)
+    for (i = 0; i < M; i++)
     {
         int result = fscanf(file, "%d %d %d %d %d %d %d", &E[i][0], &E[i][1], &E[i][2], &E[i][3], &E[i][4], &E[i][5], &E[i][6]);
     }
@@ -149,7 +160,7 @@ int main(int argc, char** argv)
     double w_y = 0.0;
     double w_z = 0.0;
     double w_norm = 0.0;
-    double A_sum = 0.0;
+    double Asum = 0.0;
     double tSum = 0.0;
     double beta_t = 0.0;
     double theta_t = 0.0;
@@ -158,14 +169,15 @@ int main(int argc, char** argv)
     printf("Calculating triangles...");
     double** A = new double* [M];
     double* Gdiag = new double[M] {0.0};
-    for (int j = 0; j < M; j++)
+#pragma omp parallel for private(t, next1, u_x, u_y, u_z, s, next2, v_x, v_y, v_z, w_x, w_y, w_z, w_norm, temp, Asum, theta_t, beta_t, l_t, tSum)
+    for (j = 0; j < M; j++)
     {
         // kazdy j-ty support ma 4/6 trojuholnikov
         A[j] = new double[6] {0.0};
-    
+
         tSum = 0.0;
         // iteracia cez vsetky trojuholniky j-teho supportu -> ulozene v poli E na pozicii [j][0]
-        for (int t = 1; t <= E[j][0]; t++) // od [1,6], riadky E su [0,7]
+        for (t = 1; t <= E[j][0]; t++) // od [1,6], riadky E su [0,7]
         {
             next1 = E[j][t] - 1;
             u_x = X[next1] - X[j];
@@ -189,12 +201,12 @@ int main(int argc, char** argv)
             // ... polovica je plocha trojuholnika A[j][t-1]
             temp = w_norm / 2.0;
             A[j][t - 1] = temp;
-            A_sum += temp;
+            //Asum += temp;
 
             // normala ku trojuholniku je normovany vektor w
-            n_x[j][t - 1] = - w_x / w_norm;
-            n_y[j][t - 1] = - w_y / w_norm;
-            n_z[j][t - 1] = - w_z / w_norm;
+            n_x[j][t - 1] = -w_x / w_norm;
+            n_y[j][t - 1] = -w_y / w_norm;
+            n_z[j][t - 1] = -w_z / w_norm;
 
             // VYPOCET Gii
             // uhol theta_t
@@ -209,7 +221,7 @@ int main(int argc, char** argv)
 
             // dlzka l_t
             l_t = sqrt(w_x * w_x + w_y * w_y + w_z * w_z);
-            
+
             temp = Gii_ln(beta_t, theta_t);
             tSum += (A[j][t - 1] / l_t) * temp;
         } // END TRIANGLES
@@ -233,20 +245,21 @@ int main(int argc, char** argv)
     double*** x = new double** [M];
     double*** y = new double** [M];
     double*** z = new double** [M];
-    
-    for (int j = 0; j < M; j++)
+
+#pragma omp parallel for private(t, k, next1, s, next2)
+    for (j = 0; j < M; j++)
     {
         x[j] = new double* [6] {nullptr};
         y[j] = new double* [6] {nullptr};
         z[j] = new double* [6] {nullptr};
 
-        for (int t = 1; t <= E[j][0]; t++)
+        for (t = 1; t <= E[j][0]; t++)
         {
             x[j][t - 1] = new double[7] {0.0};
             y[j][t - 1] = new double[7] {0.0};
             z[j][t - 1] = new double[7] {0.0};
 
-            for (int k = 0; k < 7; k++)
+            for (k = 0; k < 7; k++)
             {
                 next1 = E[j][t] - 1;
                 s = (t == E[j][0]) ? 1 : t + 1;
@@ -260,8 +273,6 @@ int main(int argc, char** argv)
     }
 
     printf("done\n\n");
-    //for (int i = 0; i < N; i++) // set constant g values
-    //    g[i] = -(GM) / (R * R);
 
     // compute matrix F
     double F_ij = 0.0;
@@ -281,27 +292,28 @@ int main(int argc, char** argv)
     //double* G = new double[M] {0.0};
     double* rhs = new double[M] {0.0};
 
-    for (int i = 0; i < M; i++)
+    for (i = 0; i < M; i++)
     {
         F[i] = new double[M] {0.0};
 
         F[i][i] = 1.0;
     }
 
-    for (int i = 0; i < M; i++)
+#pragma omp parallel for private(j, t, k, F_ij, G_ij, tSum_F, tSum_G, xDist, yDist, zDist, r_ijk, w_k, psi_k, temp, kSum_F, kSum_G, K_tij, r_x, r_y, r_z)
+    for (i = 0; i < M; i++)
     {
         F_ij = 0.0;
-        for (int j = 0; j < M; j++) // iteracie cez vsetky supporty "j"
+        for (j = 0; j < M; j++) // iteracie cez vsetky supporty "j"
         {
             if (i != j) // iba nesingularne
             {
                 tSum_F = 0.0;
                 tSum_G = 0.0;
-                for (int t = 1; t <= E[j][0]; t++) // iteracie cez vsetky trojuholniky supportu "j"
+                for (t = 1; t <= E[j][0]; t++) // iteracie cez vsetky trojuholniky supportu "j"
                 {
                     kSum_F = 0.0;
                     kSum_G = 0.0;
-                    for (int k = 0; k < 7; k++) // iteracie cez vsetky Gaussove body
+                    for (k = 0; k < 7; k++) // iteracie cez vsetky Gaussove body
                     {
                         // x[j][t - 1][k]
                         xDist = x[j][t - 1][k] - X[i];
@@ -324,17 +336,17 @@ int main(int argc, char** argv)
                     r_x = X[i] - X[j];
                     r_y = Y[i] - Y[j];
                     r_z = Z[i] - Z[j];
-                   
+
                     // skalarny sucin medzi vektorom r_ij a normalou n^t_j
                     K_tij = r_x * n_x[j][t - 1] + r_y * n_y[j][t - 1] + r_z * n_z[j][t - 1];
 
                     tSum_F += A[j][t - 1] * K_tij * kSum_F;
-                
+
                     tSum_G += A[j][t - 1] * kSum_G;
                 } // END TRIANGLES
 
                 F_ij = tSum_F / (4.0 * M_PI);
-                
+
                 F[i][j] = F_ij;
                 F[i][i] -= F_ij;
 
@@ -365,6 +377,7 @@ int main(int argc, char** argv)
         printf("G[%d][%d]: %.5lf\n", i, i, Gdiag[i]);
     }*/
 
+
     //########## BCGS linear solver ##########//
 
     double* sol = new double[M]; // vektor x^0 -> na ukladanie riesenia systemu
@@ -373,7 +386,7 @@ int main(int argc, char** argv)
     double* p = new double[M]; // pomocny vektor na update riesenia
     double* v = new double[M]; // pomocny vektor na update riesenia
     double* sv = new double[M]; // pomocny vektor na update riesenia
-    double* t = new double[M]; // pomocny vektor na update riesenia
+    double* tv = new double[M]; // pomocny vektor na update riesenia
 
     double beta = 0.0;
     double rhoNew = 1.0;
@@ -388,13 +401,13 @@ int main(int argc, char** argv)
     int iter = 1;
 
     double rezNorm = 0.0;
-    for (int i = 0; i < M; i++) // set all to zero
+    for (i = 0; i < M; i++) // set all to zero
     {
         sol[i] = 0.0;
         p[i] = 0.0; // = 0
         v[i] = 0.0; // = 0
         sv[i] = 0.0;
-        t[i] = 0.0;
+        tv[i] = 0.0;
 
         r[i] = rhs[i];
         r_hat[i] = rhs[i];
@@ -409,7 +422,7 @@ int main(int argc, char** argv)
     {
         rhoOld = rhoNew; // save previous rho_{i-2}
         rhoNew = 0.0; // compute new rho_{i-1}
-        for (int i = 0; i < M; i++) // dot(r_hat, r)
+        for (i = 0; i < M; i++) // dot(r_hat, r)
             rhoNew += r_hat[i] * r[i];
 
         if (rhoNew == 0.0)
@@ -418,21 +431,22 @@ int main(int argc, char** argv)
         if (iter == 1)
         {
             //printf("iter 1 setup\n");
-            for (int i = 0; i < M; i++)
+            for (i = 0; i < M; i++)
                 p[i] = r[i];
         }
         else
         {
-        beta = (rhoNew / rhoOld) * (alpha / omega);
-        for (int i = 0; i < M; i++) // update vector p^(i)
-            p[i] = r[i] + beta * (p[i] - omega * v[i]);
+            beta = (rhoNew / rhoOld) * (alpha / omega);
+            for (i = 0; i < M; i++) // update vector p^(i)
+                p[i] = r[i] + beta * (p[i] - omega * v[i]);
         }
 
         // compute vector v = A.p
-        for (int i = 0; i < M; i++)
+#pragma omp parallel for private(j)
+        for (i = 0; i < M; i++)
         {
             v[i] = 0.0;
-            for (int j = 0; j < M; j++)
+            for (j = 0; j < M; j++)
             {
                 v[i] += F[i][j] * p[j];
             }
@@ -440,14 +454,14 @@ int main(int argc, char** argv)
 
         // compute alpha
         tempDot = 0.0;
-        for (int i = 0; i < M; i++)
+        for (i = 0; i < M; i++)
             tempDot += r_hat[i] * v[i];
 
         alpha = rhoNew / tempDot;
 
         // compute vektor s
         sNorm = 0.0;
-        for (int i = 0; i < M; i++)
+        for (i = 0; i < M; i++)
         {
             sv[i] = r[i] - alpha * v[i];
             sNorm += sv[i] * sv[i];
@@ -456,7 +470,7 @@ int main(int argc, char** argv)
         sNorm = sqrt(sNorm);
         if (sNorm < TOL) // check if ||s|| is small enough
         {
-            for (int i = 0; i < M; i++) // update solution x
+            for (i = 0; i < M; i++) // update solution x
                 sol[i] = sol[i] + alpha * p[i];
 
             printf("BCGS stop:   ||s||(= %.10lf) is small enough, iter: %3d\n", sNorm, iter);
@@ -464,29 +478,30 @@ int main(int argc, char** argv)
         }
 
         // compute vector t = A.s
-        for (int i = 0; i < M; i++)
+#pragma omp parallel for private(j)
+        for (i = 0; i < M; i++)
         {
-            t[i] = 0.0;
-            for (int j = 0; j < M; j++)
+            tv[i] = 0.0;
+            for (j = 0; j < M; j++)
             {
-                t[i] += F[i][j] * sv[j];
+                tv[i] += F[i][j] * sv[j];
             }
         }
 
         // compute omega
         tempDot = 0.0; tempDot2 = 0.0;
-        for (int i = 0; i < M; i++)
+        for (i = 0; i < M; i++)
         {
-            tempDot += t[i] * sv[i];
-            tempDot2 += t[i] * t[i];
+            tempDot += tv[i] * sv[i];
+            tempDot2 += tv[i] * tv[i];
         }
         omega = tempDot / tempDot2;
 
         rezNorm = 0.0;
-        for (int i = 0; i < M; i++)
+        for (i = 0; i < M; i++)
         {
             sol[i] = sol[i] + alpha * p[i] + omega * sv[i]; // update solution x
-            r[i] = sv[i] - omega * t[i]; // compute new residuum vector
+            r[i] = sv[i] - omega * tv[i]; // compute new residuum vector
             rezNorm += r[i] * r[i]; // compute residuum norm
         }
 
@@ -508,7 +523,7 @@ int main(int argc, char** argv)
     delete[] p;
     delete[] v;
     delete[] sv;
-    delete[] t;
+    delete[] tv;
 
     //########## EXPORT DATA ##########//
     file = fopen("../sol_3602.dat", "w");
@@ -519,7 +534,7 @@ int main(int argc, char** argv)
     }
 
     printf("solution export started... ");
-    for (int i = 0; i < M; i++)
+    for (i = 0; i < M; i++)
     {
         fprintf(file, "%.6lf\t%.6lf\t%.6lf\n", B[i], L[i], sol[i]);
     }
@@ -527,11 +542,52 @@ int main(int argc, char** argv)
     fclose(file);
     printf("done\n");
 
+    auto end = std::chrono::high_resolution_clock::now();
+    auto time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    printf("Duration %.2lf s\n", (double)time.count() / 1000.0);
+
+    delete[] sol;
+    delete[] B;
+    delete[] L;
     delete[] X;
     delete[] Y;
     delete[] Z;
+    for (i = 0; i < M; i++)
+    {
+        delete[] n_x[i];
+        delete[] n_y[i];
+        delete[] n_z[i];
+    }
     delete[] n_x;
     delete[] n_y;
     delete[] n_z;
     delete[] q;
+    for (i = 0; i < M; i++)
+        delete[] E[i];
+    delete[] E;
+    double** A = new double* [M];
+    delete[] Gdiag;
+    for (j = 0; j < M; j++)
+        delete[] A[j];
+
+    for (j = 0; j < M; j++)
+    {
+        for (t = 0; t < 6; t++)
+        {
+            delete[] x[j][t];
+            delete[] y[j][t];
+            delete[] z[j][t];
+        }
+        delete[] x[j];
+        delete[] y[j];
+        delete[] z[j];
+    }
+    delete[] x;
+    delete[] y;
+    delete[] z;
+    delete[] rhs;
+    for (i = 0; i < M; i++)
+        delete[] F[i];
+    double** F = new double* [M];
 }
