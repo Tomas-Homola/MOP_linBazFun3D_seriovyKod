@@ -10,7 +10,8 @@
 #define R 6378000.0
 #define GM 398600.5
 //#define M 902
-#define M 3602
+//#define M 3602
+#define M 160002
 #define EPSILON 0.000000000001
 #define TOL 1.0E-6
 #define MAX_ITER  1000
@@ -50,7 +51,7 @@ double angle(double x1, double y1, double z1, double x2, double y2, double z2)
 
 int main(int argc, char** argv)
 {
-    int nprocs = 6;
+    int nprocs = 1;
     omp_set_num_threads(nprocs);
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -100,7 +101,9 @@ int main(int argc, char** argv)
     printf("Loading geometry... ");
     FILE* file = nullptr;
     //file = fopen("BL-902.dat", "r");
-    file = fopen("BL-3602.dat", "r");
+    //file = fopen("BL-3602.dat", "r");
+    file = fopen("BL-160002.dat", "r");
+
     if (file == nullptr)
     {
         printf("Geometry file did not open\n");
@@ -110,7 +113,7 @@ int main(int argc, char** argv)
     {
         int result = fscanf(file, "%lf %lf %lf %lf %lf", &B[i], &L[i], &H, &q[i], &u2n2);
         q[i] = q[i] * 0.00001;
-        //q[i] = -GM / (R * R);
+        //q[i] = GM / (R * R);
 
         Brad = B[i] * M_PI / 180.0;
         Lrad = L[i] * M_PI / 180.0;
@@ -137,7 +140,9 @@ int main(int argc, char** argv)
     // Load ELEMENTS data
     printf("Loading elements data... ");
     //file = fopen("elem_902.dat", "r");
-    file = fopen("elem_3602.dat", "r");
+    //file = fopen("elem_3602.dat", "r");
+    file = fopen("elem_160002.dat", "r");
+
     for (i = 0; i < M; i++)
     {
         int result = fscanf(file, "%d %d %d %d %d %d %d", &E[i][0], &E[i][1], &E[i][2], &E[i][3], &E[i][4], &E[i][5], &E[i][6]);
@@ -525,8 +530,20 @@ int main(int argc, char** argv)
     delete[] sv;
     delete[] tv;
 
+    double residuum = 0.0;
+    //printf("\n\nGMR: %.4lf\n\n", GM / R);
+    for (i = 0; i < M; i++)
+    {
+        residuum += (sol[i] - (GM / R)) * (sol[i] - (GM / R));
+    
+        /*if (i < 6)
+            printf("sol[%d]: %.4lf\n", i, sol[i]);*/
+    }
+
+    printf("\n160002 res: %.4lf\n", residuum);
+
     //########## EXPORT DATA ##########//
-    file = fopen("../sol_3602.dat", "w");
+    file = fopen("../sol_160002.dat", "w");
     if (file == nullptr)
     {
         printf("data export failed\n");
@@ -547,6 +564,7 @@ int main(int argc, char** argv)
 
     printf("Duration %.2lf s\n", (double)time.count() / 1000.0);
 
+    // Memory clean-up
     delete[] sol;
     delete[] B;
     delete[] L;
@@ -566,10 +584,10 @@ int main(int argc, char** argv)
     for (i = 0; i < M; i++)
         delete[] E[i];
     delete[] E;
-    double** A = new double* [M];
     delete[] Gdiag;
     for (j = 0; j < M; j++)
         delete[] A[j];
+    delete[] A;
 
     for (j = 0; j < M; j++)
     {
@@ -589,5 +607,5 @@ int main(int argc, char** argv)
     delete[] rhs;
     for (i = 0; i < M; i++)
         delete[] F[i];
-    double** F = new double* [M];
+    delete[] F;
 }
