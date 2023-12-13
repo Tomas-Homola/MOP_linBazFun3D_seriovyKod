@@ -7,11 +7,11 @@
 #include <memory>
 #include <chrono>
 
-#define R 6378000.0
+#define R 6378.0
 #define GM 398600.5
 //#define M 902
-//#define M 3602
-#define M 160002
+#define M 3602
+//#define M 160002
 #define EPSILON 0.000000000001
 #define TOL 1.0E-6
 #define MAX_ITER  1000
@@ -51,7 +51,7 @@ double angle(double x1, double y1, double z1, double x2, double y2, double z2)
 
 int main(int argc, char** argv)
 {
-    int nprocs = 1;
+    int nprocs = 6;
     omp_set_num_threads(nprocs);
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -101,8 +101,8 @@ int main(int argc, char** argv)
     printf("Loading geometry... ");
     FILE* file = nullptr;
     //file = fopen("BL-902.dat", "r");
-    //file = fopen("BL-3602.dat", "r");
-    file = fopen("BL-160002.dat", "r");
+    file = fopen("BL-3602.dat", "r");
+    //file = fopen("BL-160002.dat", "r");
 
     if (file == nullptr)
     {
@@ -112,12 +112,12 @@ int main(int argc, char** argv)
     for (i = 0; i < M; i++)
     {
         int result = fscanf(file, "%lf %lf %lf %lf %lf", &B[i], &L[i], &H, &q[i], &u2n2);
-        q[i] = q[i] * 0.00001;
-        //q[i] = GM / (R * R);
+        //q[i] = q[i] * 0.00001;
+        q[i] = GM / (R * R);
 
         Brad = B[i] * M_PI / 180.0;
         Lrad = L[i] * M_PI / 180.0;
-        //H = 0.0;
+        H = 0.0;
         X[i] = (R + H) * cos(Brad) * cos(Lrad);
         Y[i] = (R + H) * cos(Brad) * sin(Lrad);
         Z[i] = (R + H) * sin(Brad);
@@ -140,8 +140,8 @@ int main(int argc, char** argv)
     // Load ELEMENTS data
     printf("Loading elements data... ");
     //file = fopen("elem_902.dat", "r");
-    //file = fopen("elem_3602.dat", "r");
-    file = fopen("elem_160002.dat", "r");
+    file = fopen("elem_3602.dat", "r");
+    //file = fopen("elem_160002.dat", "r");
 
     for (i = 0; i < M; i++)
     {
@@ -372,17 +372,19 @@ int main(int argc, char** argv)
     {
         for (int j = 0; j < 9; j++)
         {
-            printf("%.8lf\t", F[i][j]);
+            printf("%.4lf\t", F[i][j]);
         }
         printf("\n");
-    }
-
-    for (int i = 0; i < 9; i++)
-    {
-        printf("G[%d][%d]: %.5lf\n", i, i, Gdiag[i]);
     }*/
 
+    //for (int i = 0; i < 9; i++)
+    //{
+    //    //printf("G[%d][%d]: %.5lf\n", i, i, Gdiag[i]);
+    //    printf("rhs[%d]: %.5lf\n",i, rhs[i]);
 
+    //}
+
+    //exit(-2);
     //########## BCGS linear solver ##########//
 
     double* sol = new double[M]; // vektor x^0 -> na ukladanie riesenia systemu
@@ -536,14 +538,15 @@ int main(int argc, char** argv)
     {
         residuum += (sol[i] - (GM / R)) * (sol[i] - (GM / R));
     
-        /*if (i < 6)
-            printf("sol[%d]: %.4lf\n", i, sol[i]);*/
+        if (i < 6)
+            printf("sol[%d]: %.4lf\tGM/R: %.4lf\n", i, sol[i], GM / R);
     }
 
-    printf("\n160002 res: %.4lf\n", residuum);
+    printf("\n902 res: %.8lf\n", sqrt(residuum / M));
+    exit(1);
 
     //########## EXPORT DATA ##########//
-    file = fopen("../sol_160002.dat", "w");
+    file = fopen("sol_.dat", "w");
     if (file == nullptr)
     {
         printf("data export failed\n");
